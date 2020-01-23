@@ -1,0 +1,273 @@
+---
+title: "Metering Configuration Review"
+output: html_notebook
+---
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(scales)
+```
+
+```{r}
+setwd("~/Documents/r-data/MeterDetails")
+
+meter_configuration <- NULL
+meter_configuration <- read_csv("Data/20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv", 
+                       col_types = cols(`ICP count` = col_number(), 
+                                        Residential = col_logical()
+                                       )
+                               )
+```
+
+Rename Columns to be more friendly
+```{r}
+meter_configuration <- meter_configuration %>% 
+                       rename(region_id = `Region ID`,
+                       network_region = `Network reporting region`,
+                       nsp = NSP,
+                       icp = `ICP count`,
+                       residential = Residential,
+                       price_code = `Distributor price category code`,
+                       flow_content_poa = `Register(s) (Energy flow direction - register content code - period of availability)`
+                             )
+```
+
+Factorise the data as factors to simplify reporting
+```{r}
+#meter_configuration$network_region <- as.factor(meter_configuration$network_region)
+meter_configuration$price_code <- as.factor(meter_configuration$price_code)
+```
+
+separate meter register items into separate rows
+```{r}
+meter_configuration <- meter_configuration %>% 
+                       separate_rows(flow_content_poa, sep = ' ')
+```
+
+Split into Flow, Content and POA
+```{r}
+meter_configuration <- meter_configuration %>% 
+                       separate(flow_content_poa, 
+                                c("flow", "content", "poa"), 
+                                sep = '-'
+                               )
+```
+
+Set period of availability as integer
+```{r}
+meter_configuration$poa <- as.factor(meter_configuration$poa)
+sorted_poa <- paste(sort(as.integer(levels(meter_configuration$poa))))
+meter_configuration$poa <- factor(meter_configuration$poa, levels = sorted_poa)
+```
+
+Aggregate results
+```{r}
+meter_configuration <- meter_configuration %>% 
+                       group_by(region_id, network_region, flow, content, poa) %>% 
+                       summarise(register_count = sum(icp)) %>%
+                       mutate(register_detail = paste(flow, content, poa, sep = "-"))
+```
+
+```{r}
+meter_configuration %>% ungroup() %>%
+mutate(network_region = fct_reorder(network_region, region_id)) 
+```
+Split out the registers into groups for detailed review
+```{r}
+nhh_registers <- NULL
+nhh_registers <- meter_configuration %>% 
+                     select(region_id, network_region, flow, content, poa, register_count) %>%
+                     group_by(region_id, network_region, content, flow) %>%
+                     filter(!content %in% c("7302", "7304", "7306", "7056")) %>%
+                     summarise(register_count = sum(register_count))
+
+generation_issues <- NULL
+generation_issues <- meter_configuration %>% 
+                     select(region_id, network_region, flow, content,register_count) %>%
+                     group_by(region_id, network_region, content) %>%
+                     filter(!content %in% c("7302", "7304", "7306", "7056","RH", "AH", "EG"), 
+                     flow == "I") %>%
+                     summarise(register_count = sum(register_count))
+
+generationflow_issues <- NULL
+generationflow_issues <- meter_configuration %>% 
+                     select(region_id, network_region, flow, content,register_count) %>%
+                     group_by(region_id, network_region, content) %>%
+                     filter(content =="EG", 
+                     flow == "X") %>%
+                     summarise(register_count = sum(register_count))
+
+generationpoa_issues <- NULL
+generationpoa_issues <- meter_configuration %>% 
+                     select(region_id, network_region, flow, content, poa, register_count) %>%
+                     group_by(region_id, network_region, poa, content) %>%
+                     filter(content == "EG", 
+                     flow == "I",
+                     !poa == 24) %>%
+                     summarise(register_count = sum(register_count))
+
+uncontrolled_issues <- NULL
+uncontrolled_issues <- meter_configuration %>% 
+                       ungroup() %>%
+                       select(region_id, network_region, flow, content, poa, register_count) %>% 
+                       group_by(region_id, network_region, content, poa, flow) %>%
+                       filter(content == "UN", 
+                       flow == "X",
+                       !poa == "24") %>%
+                       summarise(register_count = sum(register_count))
+
+inclusive_issues <- NULL
+inclusive_issues <- meter_configuration %>% 
+                       ungroup() %>%
+                       select(region_id, network_region, flow, content, poa, register_count) %>% 
+                       group_by(region_id, network_region, content, poa, flow) %>%
+                       filter(content == "IN") %>%
+                       summarise(register_count = sum(register_count))
+
+controlled_issues <- NULL
+controlled_issues <- meter_configuration %>% 
+                       ungroup() %>%
+                       select(region_id, network_region, flow, content, poa, register_count) %>% 
+                       group_by(region_id, network_region, content, poa, flow) %>%
+                       filter(content == "CN") %>%
+                       summarise(register_count = sum(register_count))
+
+diurnal_issues <- NULL
+diurnal_issues <- meter_configuration %>% 
+                     select(region_id, network_region, flow, content,register_count) %>%
+                     group_by(region_id, network_region, content) %>%
+                     filter(content %in% c("D", "N", "DC", "NC", "DUN", "NUN"), 
+                     flow == "X") %>%
+                     summarise(register_count = sum(register_count))
+
+poa24_issues <- NULL
+poa24_issues <- meter_configuration %>% 
+                     select(region_id, network_region, flow, content, poa, register_count) %>%
+                     group_by(region_id, network_region, content) %>%
+                     filter(!content %in% c("UN", "IN", "INEM", "EG", "RH", "S", "W", "WE","WD", "AD", "AH", "KD", "7302", "7304", "7306", "7056"), 
+                     flow == "X",
+                     poa == "24") %>%
+                     summarise(register_count = sum(register_count))
+
+```
+
+
+```{r}
+options(scipen=1000000)
+ggplot(nhh_registers, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+  geom_col(colour = "white", width = 1) +
+  scale_y_continuous(label = comma) +
+  coord_flip() +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.caption = element_text(hjust = 0),
+        legend.position = "right"
+        ) +
+  labs(title = "NHH Registers per Content Code", 
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       fill = "Register Content Code", 
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Reporting Region") + 
+  ylab("Count of NHH Registers") 
+```
+
+
+```{r}
+ggplot(uncontrolled_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+  geom_col(position = "stack") +
+  coord_flip() +
+  labs(title = "Uncontrolled Registers Excluding 24 Hours",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Hours")
+```
+
+```{r}
+ggplot(inclusive_issues %>% filter(poa %in% c(0,24)), aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+  geom_col(position = "stack", colour = "white", width = 1) +
+  scale_y_continuous(label = comma) +
+  coord_flip() +
+  labs(title = "Discrete Inclusive 24 hour Registers",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Hours")
+```
+
+```{r}
+ggplot(controlled_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+  geom_col(position = "stack", colour = "white", width = 1) +
+  scale_y_continuous(label = comma) +
+  coord_flip() +
+  labs(title = "Discrete Controlled Registers",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Hours")
+```
+
+```{r}
+ggplot(generation_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+  geom_col(position = "stack") +
+  coord_flip() +
+  labs(title = "Generation non 'EG' Register Content Codes",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Content Code")
+```
+```{r}
+ggplot(generationflow_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+  geom_col(position = "stack") +
+  coord_flip() +
+  labs(title = "Load Flow 'EG' Register Content Codes",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Content Code")
+```
+
+
+```{r}
+ggplot(generationpoa_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+  geom_col(position = "stack") +
+  coord_flip() +
+  labs(title = "Generation non 24 Hour Register Content Codes",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Hours")
+```
+
+```{r}
+ggplot(diurnal_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+  geom_col(position = "stack") +
+  coord_flip() +
+  labs(title = "Day Night Register Content Codes",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Content Code")
+```
+
+```{r}
+ggplot(poa24_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+  geom_col(position = "stack") +
+  coord_flip() +
+  labs(title = "Incorrect 24 Hour Register Content Codes",
+       subtitle = "20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+       caption = "Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)") +
+  xlab("Network Region") + 
+  ylab("Number of Registers per Network") +
+  labs(fill = "Content Code")
+```
+
