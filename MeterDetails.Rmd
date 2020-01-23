@@ -10,99 +10,89 @@ library(ggplot2)
 library(scales)
 ```
 
+Table Names
 ```{r}
-setwd("~/Documents/r-data/MeterDetails")
-
-meter_configuration <- NULL
-meter_configuration <- read_csv("Data/20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv", 
-                       col_types = cols(`ICP count` = col_number(), 
-                                        Residential = col_logical()
-                                       )
-                               )
+meter_names <- c("RegionID", "NetworkRegion", "NSP", "Count", "Residential", "PriceCategoryCode", "flow_content_poa")
 ```
 
-Rename Columns to be more friendly
+Import data from Electricity Authority of New Zealand (EMI web portal) 
 ```{r}
-meter_configuration <- meter_configuration %>% 
-                       rename(region_id = `Region ID`,
-                       network_region = `Network reporting region`,
-                       nsp = NSP,
-                       icp = `ICP count`,
-                       residential = Residential,
-                       price_code = `Distributor price category code`,
-                       flow_content_poa = `Register(s) (Energy flow direction - register content code - period of availability)`
-                             )
+#Update the filename to indicate the latest dataset.  
+#Also update filename reference in each chart
+meter_configuration <- NULL
+meter_configuration <- read_csv("https://www.emi.ea.govt.nz/Retail/Datasets/MarketStructure/ICPandMeteringDetails/20191231_MeteringConfigurationsInclDistributionPriceCatCode.csv",
+                                col_types = "cccnlcc",
+                                col_names = meter_names,
+                                skip = 1)
 ```
 
 Factorise the data as factors to simplify reporting
 ```{r}
-#meter_configuration$network_region <- as.factor(meter_configuration$network_region)
-meter_configuration$price_code <- as.factor(meter_configuration$price_code)
+meter_configuration$NetworkRegion <- as.factor(meter_configuration$NetworkRegion)
+meter_configuration$PriceCategoryCode <- as.factor(meter_configuration$PriceCategoryCode)
 ```
 
-separate meter register items into separate rows
+separate individual meter registers into separate rows
 ```{r}
 meter_configuration <- meter_configuration %>% 
                        separate_rows(flow_content_poa, sep = ' ')
 ```
 
-Split into Flow, Content and POA
+Split into Flow Direction (X= Load, I= Generation), Register Content Code and Period of Availability
 ```{r}
 meter_configuration <- meter_configuration %>% 
                        separate(flow_content_poa, 
                                 c("flow", "content", "poa"), 
                                 sep = '-'
-                               )
+                                )
 ```
 
-Set period of availability as integer
+Set period of availability as an integer
 ```{r}
 meter_configuration$poa <- as.factor(meter_configuration$poa)
 sorted_poa <- paste(sort(as.integer(levels(meter_configuration$poa))))
 meter_configuration$poa <- factor(meter_configuration$poa, levels = sorted_poa)
 ```
 
-Aggregate results
+Aggregate results per Region, Flow, Register Content and Period of Avaialbilty (dropping the Distributor Price Category Code)
 ```{r}
 meter_configuration <- meter_configuration %>% 
-                       group_by(region_id, network_region, flow, content, poa) %>% 
-                       summarise(register_count = sum(icp)) %>%
+                       group_by(RegionID, NetworkRegion, flow, content, poa) %>% 
+                       summarise(register_count = sum(Count)) %>%
                        mutate(register_detail = paste(flow, content, poa, sep = "-"))
-```
 
-```{r}
 meter_configuration %>% ungroup() %>%
-mutate(network_region = fct_reorder(network_region, region_id)) 
+                        mutate(NetworkRegion = fct_reorder(NetworkRegion, RegionID)) 
 ```
 Split out the registers into groups for detailed review
 ```{r}
 nhh_registers <- NULL
 nhh_registers <- meter_configuration %>% 
-                     select(region_id, network_region, flow, content, poa, register_count) %>%
-                     group_by(region_id, network_region, content, flow) %>%
+                     select(RegionID, NetworkRegion, flow, content, poa, register_count) %>%
+                     group_by(RegionID, NetworkRegion, content, flow) %>%
                      filter(!content %in% c("7302", "7304", "7306", "7056")) %>%
                      summarise(register_count = sum(register_count))
 
 generation_issues <- NULL
 generation_issues <- meter_configuration %>% 
-                     select(region_id, network_region, flow, content,register_count) %>%
-                     group_by(region_id, network_region, content) %>%
+                     select(RegionID, NetworkRegion, flow, content,register_count) %>%
+                     group_by(RegionID, NetworkRegion, content) %>%
                      filter(!content %in% c("7302", "7304", "7306", "7056","RH", "AH", "EG"), 
                      flow == "I") %>%
                      summarise(register_count = sum(register_count))
 
 generationflow_issues <- NULL
 generationflow_issues <- meter_configuration %>% 
-                     select(region_id, network_region, flow, content,register_count) %>%
-                     group_by(region_id, network_region, content) %>%
+                     select(RegionID, NetworkRegion, flow, content,register_count) %>%
+                     group_by(RegionID, NetworkRegion, content) %>%
                      filter(content =="EG", 
                      flow == "X") %>%
                      summarise(register_count = sum(register_count))
 
 generationpoa_issues <- NULL
 generationpoa_issues <- meter_configuration %>% 
-                     select(region_id, network_region, flow, content, poa, register_count) %>%
-                     group_by(region_id, network_region, poa, content) %>%
+                     select(RegionID, NetworkRegion, flow, content, poa, register_count) %>%
+                     group_by(RegionID, NetworkRegion, poa, content) %>%
                      filter(content == "EG", 
                      flow == "I",
                      !poa == 24) %>%
@@ -111,8 +101,8 @@ generationpoa_issues <- meter_configuration %>%
 uncontrolled_issues <- NULL
 uncontrolled_issues <- meter_configuration %>% 
                        ungroup() %>%
-                       select(region_id, network_region, flow, content, poa, register_count) %>% 
-                       group_by(region_id, network_region, content, poa, flow) %>%
+                       select(RegionID, NetworkRegion, flow, content, poa, register_count) %>% 
+                       group_by(RegionID, NetworkRegion, content, poa, flow) %>%
                        filter(content == "UN", 
                        flow == "X",
                        !poa == "24") %>%
@@ -121,31 +111,31 @@ uncontrolled_issues <- meter_configuration %>%
 inclusive_issues <- NULL
 inclusive_issues <- meter_configuration %>% 
                        ungroup() %>%
-                       select(region_id, network_region, flow, content, poa, register_count) %>% 
-                       group_by(region_id, network_region, content, poa, flow) %>%
+                       select(RegionID, NetworkRegion, flow, content, poa, register_count) %>% 
+                       group_by(RegionID, NetworkRegion, content, poa, flow) %>%
                        filter(content == "IN") %>%
                        summarise(register_count = sum(register_count))
 
 controlled_issues <- NULL
 controlled_issues <- meter_configuration %>% 
                        ungroup() %>%
-                       select(region_id, network_region, flow, content, poa, register_count) %>% 
-                       group_by(region_id, network_region, content, poa, flow) %>%
+                       select(RegionID, NetworkRegion, flow, content, poa, register_count) %>% 
+                       group_by(RegionID, NetworkRegion, content, poa, flow) %>%
                        filter(content == "CN") %>%
                        summarise(register_count = sum(register_count))
 
 diurnal_issues <- NULL
 diurnal_issues <- meter_configuration %>% 
-                     select(region_id, network_region, flow, content,register_count) %>%
-                     group_by(region_id, network_region, content) %>%
+                     select(RegionID, NetworkRegion, flow, content,register_count) %>%
+                     group_by(RegionID, NetworkRegion, content) %>%
                      filter(content %in% c("D", "N", "DC", "NC", "DUN", "NUN"), 
                      flow == "X") %>%
                      summarise(register_count = sum(register_count))
 
 poa24_issues <- NULL
 poa24_issues <- meter_configuration %>% 
-                     select(region_id, network_region, flow, content, poa, register_count) %>%
-                     group_by(region_id, network_region, content) %>%
+                     select(RegionID, NetworkRegion, flow, content, poa, register_count) %>%
+                     group_by(RegionID, NetworkRegion, content) %>%
                      filter(!content %in% c("UN", "IN", "INEM", "EG", "RH", "S", "W", "WE","WD", "AD", "AH", "KD", "7302", "7304", "7306", "7056"), 
                      flow == "X",
                      poa == "24") %>%
@@ -153,10 +143,10 @@ poa24_issues <- meter_configuration %>%
 
 ```
 
-
+Chart total of each register content code per network
 ```{r}
 options(scipen=1000000)
-ggplot(nhh_registers, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+ggplot(nhh_registers, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = content)) +
   geom_col(colour = "white", width = 1) +
   scale_y_continuous(label = comma) +
   coord_flip() +
@@ -172,9 +162,9 @@ ggplot(nhh_registers, aes(fct_reorder(network_region, desc(region_id)), register
   ylab("Count of NHH Registers") 
 ```
 
-
+Chart Uncontrolled meter register content codes without 24 hours of availability
 ```{r}
-ggplot(uncontrolled_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+ggplot(uncontrolled_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = poa)) +
   geom_col(position = "stack") +
   coord_flip() +
   labs(title = "Uncontrolled Registers Excluding 24 Hours",
@@ -185,8 +175,9 @@ ggplot(uncontrolled_issues, aes(fct_reorder(network_region, desc(region_id)), re
   labs(fill = "Hours")
 ```
 
+Chart the Inclusive 24 hour registers (should be UN24 or INxx)
 ```{r}
-ggplot(inclusive_issues %>% filter(poa %in% c(0,24)), aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+ggplot(inclusive_issues %>% filter(poa %in% c(0,24)), aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = poa)) +
   geom_col(position = "stack", colour = "white", width = 1) +
   scale_y_continuous(label = comma) +
   coord_flip() +
@@ -198,8 +189,9 @@ ggplot(inclusive_issues %>% filter(poa %in% c(0,24)), aes(fct_reorder(network_re
   labs(fill = "Hours")
 ```
 
+Chart the number of controlled registers per period of availabilty
 ```{r}
-ggplot(controlled_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+ggplot(controlled_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = poa)) +
   geom_col(position = "stack", colour = "white", width = 1) +
   scale_y_continuous(label = comma) +
   coord_flip() +
@@ -211,8 +203,9 @@ ggplot(controlled_issues, aes(fct_reorder(network_region, desc(region_id)), regi
   labs(fill = "Hours")
 ```
 
+Plot the Generation (I Flow) register content codes without EG register content code
 ```{r}
-ggplot(generation_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+ggplot(generation_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = content)) +
   geom_col(position = "stack") +
   coord_flip() +
   labs(title = "Generation non 'EG' Register Content Codes",
@@ -222,8 +215,9 @@ ggplot(generation_issues, aes(fct_reorder(network_region, desc(region_id)), regi
   ylab("Number of Registers per Network") +
   labs(fill = "Content Code")
 ```
+Chart the Generation EG register content codes with Load (flow direction X)
 ```{r}
-ggplot(generationflow_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+ggplot(generationflow_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = content)) +
   geom_col(position = "stack") +
   coord_flip() +
   labs(title = "Load Flow 'EG' Register Content Codes",
@@ -234,9 +228,9 @@ ggplot(generationflow_issues, aes(fct_reorder(network_region, desc(region_id)), 
   labs(fill = "Content Code")
 ```
 
-
+Plot the Generation EG register content code registers without 24 hours available
 ```{r}
-ggplot(generationpoa_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = poa)) +
+ggplot(generationpoa_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = poa)) +
   geom_col(position = "stack") +
   coord_flip() +
   labs(title = "Generation non 24 Hour Register Content Codes",
@@ -247,8 +241,9 @@ ggplot(generationpoa_issues, aes(fct_reorder(network_region, desc(region_id)), r
   labs(fill = "Hours")
 ```
 
+Chart the day night registers 
 ```{r}
-ggplot(diurnal_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+ggplot(diurnal_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = content)) +
   geom_col(position = "stack") +
   coord_flip() +
   labs(title = "Day Night Register Content Codes",
@@ -259,8 +254,9 @@ ggplot(diurnal_issues, aes(fct_reorder(network_region, desc(region_id)), registe
   labs(fill = "Content Code")
 ```
 
+Chart load flow register content codes with 24 hours available but not UN24.
 ```{r}
-ggplot(poa24_issues, aes(fct_reorder(network_region, desc(region_id)), register_count, fill = content)) +
+ggplot(poa24_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_count, fill = content)) +
   geom_col(position = "stack") +
   coord_flip() +
   labs(title = "Incorrect 24 Hour Register Content Codes",
