@@ -3,6 +3,8 @@ The New Zealand Electricity Authority produces monthly reports on electricity me
 This project extracts, reshapes and aggregates these data to produce charts to indicate the count of specific meter register content codes, period of availabilty and energy flow direction.
 This is useful for developing electricity meter register maps for electricity tariffs, and identifying irregular (illogical) meter register details.
 Examples include load flow with generation code, uncontrolled without 24 hour availability, controlled load with 24 hour availabilty etc.
+OUTSTANDING ISSUE - SOURCE DATA IS NOT VALIDATED.
+
 Regards,
 Malcolm
 221b Limited
