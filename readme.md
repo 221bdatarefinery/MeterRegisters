@@ -1,4 +1,4 @@
-Overview
+Overview:
 The New Zealand Electricity Authority produces monthly reports on electricity meter register configurations for NZ electricity networks.  The count of specific combinations of meter register details is provided.
 This project extracts, reshapes and aggregates these data to produce charts to indicate the count of specific meter register content codes, period of availabilty and energy flow direction.
 This is useful for developing electricity meter register maps for electricity tariffs, and identifying irregular (illogical) meter register details.
