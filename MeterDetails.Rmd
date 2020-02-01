@@ -9,6 +9,7 @@ library(tidyverse)
 library(ggplot2)
 library(scales)
 ```
+Disclaimer:  While every attempt has been made to ensure the accuracy of the material in this script, 221B Ltd makes no warranty as to the accuracy, completeness or usefulness for any particular purpose of the material in this script; and they accept no liability for errors of fact or opinion in this script, whether or not due to negligence on the part of any party.
 
 Table Names
 ```{r}
@@ -266,4 +267,3 @@ ggplot(poa24_issues, aes(fct_reorder(NetworkRegion, desc(RegionID)), register_co
   ylab("Number of Registers per Network") +
   labs(fill = "Content Code")
 ```
-
