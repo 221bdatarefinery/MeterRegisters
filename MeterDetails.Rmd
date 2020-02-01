@@ -14,6 +14,8 @@ Disclaimer:  While every attempt has been made to ensure the accuracy of the mat
 of the material in this script; and they accept no liability for errors of fact or opinion in this 
 script, whether or not due to negligence on the part of any party.
 
+Data source: www.emi.ea.govt.nz provided by the Electricity Authority (New Zealand)
+
 Table Names
 ```{r}
 meter_names <- c("RegionID", "NetworkRegion", "NSP", "Count", "Residential", "PriceCategoryCode", "flow_content_poa")
